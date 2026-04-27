@@ -1,0 +1,714 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { BookOpen, Anchor, ArrowRight, MessageCircle, Eye, Clock, CheckCircle2, ChevronRight, ChevronLeft, Edit3, Type, ListOrdered, Users, PlusCircle, Save, LogOut, Sparkles, User, Lock, Loader2, GraduationCap } from 'lucide-react';
+
+// ==========================================
+// 1. Firebase 初始化 (本地开发专用)
+// ==========================================
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
+};
+
+const isFirebaseConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "在这里填入你的真实数据";
+
+const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
+const auth = isFirebaseConfigured ? getAuth(app) : null;
+const db = isFirebaseConfigured ? getFirestore(app) : null;
+const appId = firebaseConfig.projectId || 'production-english-app';
+
+// ==========================================
+// 2. 默认课程数据 (当数据库为空时的初始数据)
+// ==========================================
+const DEFAULT_LESSONS = [
+  {
+    id: "lesson_1",
+    title: "Lesson 1: 完美的开篇",
+    subtitle: "The Perfect Hook - Catching Your Reader",
+    target: "I can hook my reader at the very beginning of a narrative by using action, dialogue, or a surprising statement instead of a boring introduction.",
+    sections: {
+      preClass: [
+        { type: 'title', content: 'Activity A & B: The Anatomy of an Opening' },
+        { type: 'info', content: 'Read the excerpts below. Dissect the texts by interacting with them.' },
+        { 
+          type: 'highlight', 
+          instruction: 'The "Delete" Test: Click to highlight every sentence that describes a routine action that literally everyone does.',
+          text: "I woke up early on Saturday morning. I felt a little bit sad but also excited. Today was the day I would officially graduate from Zhongguancun No. 1 Primary School. I got out of bed, put on my uniform for the last time, and ate my breakfast quickly. I grabbed my backpack, and my dad drove me to the school. I wondered what middle school in Haidian would be like next year.",
+          correctKeywords: ["woke up", "got out of bed", "ate my breakfast", "grabbed my backpack"]
+        },
+        { type: 'info', content: '**Excerpt 2: In Media Res (The Action Hook)**\nThe heavy carbon-fiber shaft of my lacrosse stick cracked against the defender’s forearm with a loud THWACK. I didn\'t even blink. Ignoring the sting vibrating up my wrist, I spun left, checked my throwing strings, and cradled the ball tight against my chest. With five seconds left on the stadium clock, dodging this giant was the only thing standing between me and the championship.' },
+        { type: 'write', instruction: 'Sensory Anchor: Find the sound detail and the touch/feeling detail the author uses in Excerpt 2. Write them below.', placeholder: 'Sound detail: ... \nTouch detail: ...' },
+        { type: 'title', content: 'Activity C: "First Thought, Wrong Thought" Brainstorming' },
+        { type: 'write', instruction: 'Prompt: "Write about a time you tried something completely new and failed."\nWrite three completely different, professional hooks for this prompt.', placeholder: 'Hook 1 (Action):\nHook 2 (Dialogue):\nHook 3 (Sensory/Setting):' }
+      ],
+      inClass: [
+        { type: 'title', content: 'The Science of the Hook' },
+        { type: 'info', content: '• **In Media Res**: Drop the reader into the scene one second *after* the action has already started.\n• **Dialogue Hook**: Start with a quote that creates immediate conflict, confusion, or tension.\n• **Sensory Hook**: Focus intensely on one hyper-specific detail.' },
+        { type: 'title', content: 'Collaborative Lab: The "Makeover" Sprints' },
+        { type: 'write', instruction: 'Sprint 1 (The Sports Scene)\nBoring Start: I was very nervous before my 5K running race started. There were a lot of people.\nYour Rewrite (Must use an Action Hook):', placeholder: 'Write your action hook here...' },
+        { type: 'write', instruction: 'Sprint 2 (The Test Score)\nBoring Start: I checked my computer to see my final exam grade. I hoped I did well.\nYour Rewrite (Must use a Dialogue Hook):', placeholder: 'Write your dialogue hook here...' }
+      ],
+      postClass: [
+        { type: 'title', content: 'Module A: Standardized Reading Comprehension' },
+        { type: 'info', content: '"Don\'t you dare look down," Coach Miller hissed, his grip tightening on my shoulder harness.\nThe wind whipped across the sheer rock face, drowning out everything except the sound of my own ragged breathing and the metallic clinking of the carabiners.\nMy boots slipped slightly on the damp granite, sending a small shower of pebbles plummeting into the foggy abyss below.\nI swallowed hard, my mouth tasting like old pennies, and reached blindly for the next handhold.' },
+        { type: 'quiz', question: 'Question 1: Which technique does the author use in sentence (1) to hook the reader?', options: ['Introducing the main character\'s backstory.', 'Using a dialogue hook that immediately establishes tension.', 'Describing the setting in chronological order.', 'Asking the reader a direct question.'], correct: 1 },
+        { type: 'quiz', question: 'Question 2: How does sentence (3) function within this opening hook?', options: ['It provides a flashback to explain why the character is climbing.', 'It resolves the conflict established by the coach.', 'It uses action and sensory details (sound, sight) to raise the stakes and increase danger.', 'It transitions the story to a completely different setting.'], correct: 2 },
+        { type: 'title', content: 'Module B: The "Three-Way" Draft Challenge' },
+        { type: 'write', instruction: 'Scenario: You have just discovered a hidden door at the back of your school library that you\'ve never noticed before. The door is slightly cracked open, and a strange light is spilling out.\n\nTask: Write THREE different opening paragraphs (each 3-4 sentences long).', placeholder: 'Draft 1: The Action Hook (In Media Res)...\n\nDraft 2: The Dialogue Hook...\n\nDraft 3: The Sensory Hook...' }
+      ]
+    }
+  },
+  {
+    id: "lesson_2",
+    title: "Lesson 2: 逻辑定序",
+    subtitle: "The Arrow of Time - Mastering Logical Sequencing",
+    target: "I can sequence events logically in a narrative using a sophisticated 'Transition Matrix'.",
+    sections: {
+      preClass: [
+        { type: 'title', content: 'Activity A & B: The Logic Detective' },
+        { type: 'info', content: '**Excerpt 2: The Logical Arrow**\nInitially, early that Saturday morning, we packed the car with blue and white gear, our breath visible in the crisp autumn air. Upon arriving at Penn State, we set up our grill for a massive tailgate, throwing the football around with other fans. As soon as the gates swung open, we joined the sea of white-clad spectators pouring into the stands to find Section 102. Simultaneously, the band marched onto the field, their drums thumping like a heartbeat. Finally, just as the sun dipped behind the stadium walls, the winning touchdown was scored, and the entire valley shook with our cheers.' },
+        { type: 'order', instruction: 'The Mini-Sequence: Click the 4 steps of a Lacrosse play below in the correct logical order (1 to 4).', items: ["I adjusted my grip and fired a shot into the top corner of the net.", "The referee blew the whistle to start the second half.", "I scooped up the ground ball near the midfield line.", "I dodged a defender who was trying to check my stick."], correctOrder: [3, 0, 1, 2] }
+      ],
+      inClass: [
+        { type: 'title', content: 'Mini-Lesson: The Transition Matrix' },
+        { type: 'info', content: '🕒 **Chronological**: Initially, Subsequently, Eventually, Ultimately\n⏳ **Simultaneous**: Meanwhile, Simultaneously, In the meantime\n⚡ **Causal**: Consequently, As a result, Accordingly' },
+        { type: 'write', instruction: 'Collaborative Lab: The "Domino Effect" Challenge\nA 5K race at the Olympic Forest Park in Beijing. Fill in the missing events.', placeholder: 'Initially, the starter pistol fired and a thousand runners surged forward.\n(Use Meanwhile) ... \n(Use Gradually) ...\nConsequently, I crossed the finish line with a new personal record.' }
+      ],
+      postClass: [
+         { type: 'title', content: 'Module A: Standardized Reading Check' },
+         { type: 'info', content: 'Our team arrived at the Haidian Science Center just as the doors opened at 8:00 AM.\n(2) Initially, we spent an hour carefully assembling our model of a digital carbon credit registry.\n(3) In the meantime, the judges began walking through the other rows, taking notes on their clipboards.\n(4) Consequently, we were perfectly prepared by the time they reached our booth at noon.\n(5) Ultimately, our hard work paid off when they announced the first-place winners.' },
+         { type: 'quiz', question: 'Which transition word in the passage shows that two different things were happening at the exact same time?', options: ['Initially', 'In the meantime', 'Consequently', 'Ultimately'], correct: 1 },
+         { type: 'write', instruction: 'Module B: The "Chaos to Order" Writing Challenge\nWrite a two-paragraph story about "A Lacrosse Practice Gone Wrong."\nPara 1: Use Initially and Subsequently.\nPara 2: Use Simultaneously and As a result.', placeholder: 'Draft your 2 paragraphs here...' }
+      ]
+    }
+  }
+];
+
+// ==========================================
+// 3. Shared Interactive Components
+// ==========================================
+const HighlightText = ({ text, instruction, value = [], onChange, teacherFeedback, readOnly }) => {
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+
+  const toggleSentence = (index) => {
+    if (readOnly) return;
+    if (value.includes(index)) onChange(value.filter(i => i !== index));
+    else onChange([...value, index]);
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 relative">
+      <div className="flex items-center gap-2 mb-4 text-indigo-600 font-semibold"><Edit3 className="w-5 h-5" /><h3>互动练习: 文本分析</h3></div>
+      <p className="text-slate-600 mb-4">{instruction}</p>
+      <div className={`p-4 bg-slate-50 rounded-lg text-lg leading-relaxed select-none ${readOnly ? '' : 'cursor-pointer'}`}>
+        {sentences.map((sentence, idx) => (
+          <span key={idx} onClick={() => toggleSentence(idx)} className={`transition-colors duration-200 ease-in-out px-1 rounded ${value.includes(idx) ? 'bg-yellow-300 text-slate-900 shadow-sm' : 'hover:bg-slate-200 text-slate-800'}`}>
+            {sentence}
+          </span>
+        ))}
+      </div>
+      {teacherFeedback && (
+        <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+          <p className="text-sm font-bold text-orange-800 mb-1">Teacher's Feedback:</p>
+          <p className="text-orange-900 whitespace-pre-line">{teacherFeedback}</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const OrderingTask = ({ items, instruction, value = [], onChange, teacherFeedback, readOnly }) => {
+  const currentOrder = value.length === items.length ? value : Array(items.length).fill(null);
+  const currentStep = currentOrder.filter(x => x !== null).length + 1;
+
+  const handleItemClick = (index) => {
+    if (readOnly) return;
+    const newOrder = [...currentOrder];
+    if (newOrder[index] !== null) { newOrder[index] = null; onChange(newOrder); }
+    else if (currentStep <= items.length) { newOrder[index] = currentStep; onChange(newOrder); }
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+      <div className="flex items-center justify-between mb-4"><div className="flex items-center gap-2 text-indigo-600 font-semibold"><ListOrdered className="w-5 h-5" /><h3>互动练习: 逻辑排序</h3></div>{!readOnly && <button onClick={() => onChange([])} className="text-sm text-slate-500 hover:text-indigo-600">重置 (Reset)</button>}</div>
+      <p className="text-slate-600 mb-4">{instruction}</p>
+      <div className="flex flex-col gap-3">
+        {items.map((item, idx) => (
+          <div key={idx} onClick={() => handleItemClick(idx)} className={`flex items-center gap-4 p-4 rounded-lg transition-all ${readOnly ? '' : 'cursor-pointer'} ${currentOrder[idx] !== null ? 'bg-indigo-50 border border-indigo-200 shadow-sm' : 'bg-slate-50 border border-transparent hover:bg-slate-100'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${currentOrder[idx] !== null ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}>{currentOrder[idx] || '?'}</div>
+            <p className="text-slate-800">{item}</p>
+          </div>
+        ))}
+      </div>
+      {teacherFeedback && (
+        <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-lg"><p className="text-sm font-bold text-orange-800 mb-1">Teacher's Feedback:</p><p className="text-orange-900 whitespace-pre-line">{teacherFeedback}</p></div>
+      )}
+    </div>
+  );
+};
+
+const QuizBlock = ({ question, options, value, onChange, teacherFeedback, readOnly }) => {
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+      <h3 className="font-semibold text-slate-800 mb-4 text-lg">{question}</h3>
+      <div className="flex flex-col gap-3">
+        {options.map((opt, idx) => {
+          const isSelected = value === idx;
+          let btnClass = "text-left p-4 rounded-lg border transition-all duration-200 ";
+          if (isSelected) btnClass += "bg-indigo-50 border-indigo-500 text-indigo-800";
+          else btnClass += "bg-white border-slate-200 text-slate-700 " + (readOnly ? "" : "hover:border-indigo-300 hover:bg-slate-50");
+
+          return (
+            <button key={idx} onClick={() => !readOnly && onChange(idx)} className={btnClass} disabled={readOnly}>
+              <div className="flex items-center gap-3"><div className={`w-6 h-6 rounded-full border flex items-center justify-center text-sm ${isSelected ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-slate-300'}`}>{String.fromCharCode(65 + idx)}</div><span>{opt}</span></div>
+            </button>
+          );
+        })}
+      </div>
+      {teacherFeedback && <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-lg"><p className="text-sm font-bold text-orange-800 mb-1">Teacher's Feedback:</p><p className="text-orange-900 whitespace-pre-line">{teacherFeedback}</p></div>}
+    </div>
+  );
+};
+
+const WritingPad = ({ instruction, placeholder, value = "", onChange, teacherFeedback, readOnly }) => {
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+      <div className="flex items-center gap-2 mb-3 text-indigo-600 font-semibold"><Type className="w-5 h-5" /><h3>写作练习 (Writing Task)</h3></div>
+      <p className="text-slate-700 mb-4 whitespace-pre-line">{instruction}</p>
+      {readOnly ? (
+        <div className="w-full min-h-[160px] p-4 bg-slate-50 border border-slate-200 rounded-lg whitespace-pre-line text-slate-800">{value || <span className="text-slate-400 italic">No answer provided.</span>}</div>
+      ) : (
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full h-40 p-4 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y text-slate-800" />
+      )}
+      {teacherFeedback && <div className="mt-4 p-4 bg-orange-50 border border-orange-200 rounded-lg"><p className="text-sm font-bold text-orange-800 mb-1">Teacher's Feedback / Grade:</p><p className="text-orange-900 whitespace-pre-line">{teacherFeedback}</p></div>}
+    </div>
+  );
+};
+
+const InfoBlock = ({ content }) => (
+  <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 mb-6 text-slate-800 whitespace-pre-line leading-relaxed shadow-sm">{content}</div>
+);
+
+// ==========================================
+// 4. Lesson Runner Component
+// ==========================================
+const LessonRunner = ({ lesson, answers, onUpdateAnswer, feedback = {}, onUpdateFeedback, mode = "student", onBack }) => {
+  const [activeTab, setActiveTab] = useState('preClass');
+  const tabs = [
+    { id: 'preClass', label: '🟢 课前预习 (Discovery)' },
+    { id: 'inClass', label: '🟡 随堂练习 (Mastery)' },
+    { id: 'postClass', label: '🔴 课后巩固 (Assessment)' }
+  ];
+
+  const renderBlock = (block, idx) => {
+    const blockKey = `${activeTab}-${idx}`;
+    const value = answers[blockKey];
+    const tbFeedback = feedback[blockKey];
+    const isTeacherReview = mode === "review";
+
+    const commonProps = { value: value, readOnly: isTeacherReview, teacherFeedback: !isTeacherReview ? tbFeedback : null, onChange: (val) => onUpdateAnswer(blockKey, val) };
+
+    let component = null;
+    switch (block.type) {
+      case 'title': component = <h2 className="text-2xl font-bold text-slate-900 mb-6 mt-8">{block.content}</h2>; break;
+      case 'info': component = <InfoBlock content={block.content} />; break;
+      case 'highlight': component = <HighlightText {...block} {...commonProps} />; break;
+      case 'quiz': component = <QuizBlock {...block} {...commonProps} />; break;
+      case 'order': component = <OrderingTask {...block} {...commonProps} />; break;
+      case 'write': component = <WritingPad {...block} {...commonProps} />; break;
+      default: return null;
+    }
+
+    return (
+      <div key={blockKey}>
+        {component}
+        {isTeacherReview && ['write', 'quiz', 'highlight', 'order'].includes(block.type) && (
+          <div className="mb-6 mt-[-10px] ml-4 border-l-4 border-orange-400 pl-4">
+            <textarea placeholder="Leave feedback or grade for this answer..." value={tbFeedback || ""} onChange={(e) => onUpdateFeedback(blockKey, e.target.value)} className="w-full h-20 p-3 bg-orange-50 border border-orange-200 rounded-lg text-sm focus:ring-orange-500 outline-none" />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-20">
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+        <div className="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
+          <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-900 font-medium text-sm"><ChevronLeft className="w-5 h-5 mr-1" /> 返回 (Back)</button>
+          <div className="font-semibold text-slate-800">{lesson.title}</div>
+          <div className="w-24 flex justify-end">
+            {mode === 'student' && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center"><Save className="w-3 h-3 mr-1"/> Auto-saved</span>}
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-4xl mx-auto px-6 py-8">
+        <div className="bg-slate-900 rounded-2xl p-8 mb-8 text-white shadow-lg relative overflow-hidden">
+          <h1 className="text-3xl font-bold mb-3">{lesson.subtitle}</h1>
+          <div className="inline-block bg-white/10 px-4 py-2 rounded-lg text-sm font-medium mb-4">Learning Target</div>
+          <p className="text-lg text-slate-300 leading-relaxed max-w-2xl">{lesson.target}</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-8 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+          {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 py-3 px-4 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>{tab.label}</button>
+          ))}
+        </div>
+
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {(lesson.sections[activeTab] || []).map((block, idx) => renderBlock(block, idx))}
+        </div>
+
+        <div className="mt-12 flex justify-between items-center pt-6 border-t border-slate-200">
+          <button disabled={activeTab === 'preClass'} onClick={() => setActiveTab(tabs[tabs.findIndex(t => t.id === activeTab) - 1].id)} className={`px-6 py-3 rounded-lg font-medium transition-colors ${activeTab === 'preClass' ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'}`}>上一部分 (Prev)</button>
+          {activeTab !== 'postClass' ? (
+            <button onClick={() => setActiveTab(tabs[tabs.findIndex(t => t.id === activeTab) + 1].id)} className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 shadow-sm transition-colors">下一部分 (Next)</button>
+          ) : (
+            <button onClick={onBack} className="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 shadow-sm transition-colors flex items-center gap-2"><CheckCircle2 className="w-5 h-5" /> 完成 (Done)</button>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+};
+
+// ==========================================
+// 5. Main Application Component
+// ==========================================
+export default function App() {
+  const [firebaseUser, setFirebaseUser] = useState(null);
+  const [appUser, setAppUser] = useState(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  
+  // Login State
+  const [authMode, setAuthMode] = useState('login');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [roleInput, setRoleInput] = useState('student');
+  const [authError, setAuthError] = useState('');
+
+  // Data State
+  const [lessons, setLessons] = useState([]);
+  const [allStudents, setAllStudents] = useState([]);
+  const [studentProgress, setStudentProgress] = useState({});
+
+  // Navigation State
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [selectedLesson, setSelectedLesson] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
+  // AI State
+  const [rawLessonText, setRawLessonText] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // 安全拦截：如果没有填写真实 Firebase 密钥，阻止渲染并提示
+  if (!isFirebaseConfigured) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-8 text-center">
+        <div className="max-w-2xl bg-white p-10 rounded-2xl shadow-xl border border-red-100">
+          <h1 className="text-3xl font-bold text-red-600 mb-4">⚠️ 生产环境缺少真实配置</h1>
+          <p className="text-slate-700 text-lg mb-6 leading-relaxed">
+            你正在尝试运行**连接云端数据库的在线版本**，但系统检测到缺少环境变量信息。
+          </p>
+          <div className="bg-slate-100 p-6 rounded-lg text-left text-sm font-mono overflow-x-auto text-slate-800 mb-6">
+            <p className="font-bold mb-2">如何解决：</p>
+            1. 前往 <a href="https://console.firebase.google.com/" className="text-indigo-600 underline" target="_blank" rel="noreferrer">Firebase 官网</a> 免费创建一个项目。<br/>
+            2. 在项目设置中找到你的 Web App 配置代码。<br/>
+            3. 将那些真实的随机乱码填入你本地最外层的 <code>.env</code> 文件中。<br/>
+            4. 终端按 <kbd className="bg-white px-1 border rounded">Ctrl+C</kbd> 停止，重新运行 <kbd className="bg-white px-1 border rounded">npm run dev</kbd>。
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 监听 Firebase 登录状态
+  useEffect(() => {
+    if (!auth) return;
+    const initAuth = async () => {
+      try {
+        await signInAnonymously(auth);
+      } catch (err) {
+        console.error("Firebase 匿名登录失败 (请去 Firebase 开启 Anonymous 登录权限):", err);
+      }
+    };
+    initAuth();
+    
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setFirebaseUser(u);
+      setIsInitializing(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 登录系统后，从 Firebase 拉取全局数据
+  useEffect(() => {
+    if (!firebaseUser || !appUser || !db) return;
+    
+    // 监听课程更新
+    const lessonsRef = collection(db, 'artifacts', appId, 'app_lessons');
+    const unsubLessons = onSnapshot(lessonsRef, (snap) => {
+      const dbLessons = snap.docs.map(d => d.data());
+      const merged = [...DEFAULT_LESSONS];
+      dbLessons.forEach(dbl => {
+        if (!merged.find(l => l.id === dbl.id)) merged.push(dbl);
+      });
+      setLessons(merged);
+    }, (err) => console.error("读取课程失败:", err));
+
+    // 监听所有学生的做题进度
+    const progRef = collection(db, 'artifacts', appId, 'app_progress');
+    const unsubProg = onSnapshot(progRef, (snap) => {
+      const progObj = {};
+      snap.docs.forEach(d => { progObj[d.id] = d.data(); });
+      setStudentProgress(progObj);
+    }, (err) => console.error("读取进度失败:", err));
+
+    // 如果是老师，拉取学生名单
+    let unsubUsers = () => {};
+    if (appUser.role === 'teacher') {
+      const usersRef = collection(db, 'artifacts', appId, 'app_users');
+      unsubUsers = onSnapshot(usersRef, (snap) => {
+        const students = snap.docs.map(d => d.data()).filter(u => u.role === 'student');
+        setAllStudents(students);
+      }, (err) => console.error("读取学生名单失败:", err));
+    }
+
+    return () => {
+      unsubLessons();
+      unsubProg();
+      unsubUsers();
+    };
+  }, [firebaseUser, appUser]);
+
+
+  // ==========================================
+  // Handlers
+  // ==========================================
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    if (!usernameInput || !passwordInput) return setAuthError("请填写完整账号和密码。");
+    if (!firebaseUser || !db) return setAuthError("数据库尚未准备好，请检查网络或配置。");
+
+    const usernameStr = usernameInput.toLowerCase().trim();
+    // 存储用户的表路径： /artifacts/{appId}/app_users/{username}
+    const userRef = doc(db, 'artifacts', appId, 'app_users', usernameStr);
+    
+    try {
+      const docSnap = await getDoc(userRef);
+      if (authMode === 'register') {
+        if (docSnap.exists()) {
+          setAuthError("该用户名已被注册，请直接登录。");
+        } else {
+          const newUser = { username: usernameStr, password: passwordInput, role: roleInput };
+          await setDoc(userRef, newUser);
+          setAppUser(newUser);
+        }
+      } else {
+        if (!docSnap.exists()) {
+          setAuthError("找不到该用户，请先注册。");
+        } else {
+          const data = docSnap.data();
+          if (data.password !== passwordInput) setAuthError("密码错误！");
+          else setAppUser(data);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setAuthError("由于安全规则拦截或网络错误导致登录失败，请确保您在 Firebase 中开启了 Firestore 读写权限。");
+    }
+  };
+
+  const handleUpdateAnswer = async (lessonId, blockKey, value) => {
+    if (appUser.role !== 'student' || !db) return;
+    
+    const currentProg = studentProgress[appUser.username] || { answers: {}, feedback: {} };
+    const newAnswers = { ...currentProg.answers, [lessonId]: { ...(currentProg.answers[lessonId] || {}), [blockKey]: value } };
+    
+    setStudentProgress(prev => ({
+      ...prev,
+      [appUser.username]: { ...currentProg, answers: newAnswers }
+    }));
+
+    try {
+      const progRef = doc(db, 'artifacts', appId, 'app_progress', appUser.username);
+      await setDoc(progRef, { answers: newAnswers, feedback: currentProg.feedback || {} }, { merge: true });
+    } catch (err) {
+      console.error("云端保存进度失败:", err);
+    }
+  };
+
+  const handleUpdateFeedback = async (studentName, lessonId, blockKey, value) => {
+    if (appUser.role !== 'teacher' || !db) return;
+
+    const currentProg = studentProgress[studentName] || { answers: {}, feedback: {} };
+    const newFeedback = { ...currentProg.feedback, [lessonId]: { ...(currentProg.feedback[lessonId] || {}), [blockKey]: value } };
+    
+    try {
+      const progRef = doc(db, 'artifacts', appId, 'app_progress', studentName);
+      await setDoc(progRef, { answers: currentProg.answers || {}, feedback: newFeedback }, { merge: true });
+    } catch (err) {
+      console.error("云端保存批改失败:", err);
+    }
+  };
+
+  const handleGenerateLesson = async () => {
+    if (!rawLessonText.trim()) return;
+    setIsGenerating(true);
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY; // 在线预览环境留空即可，系统会自动注入。本地部署时请改回 import.meta.env.VITE_GEMINI_API_KEY
+
+      const systemPrompt = `You are an educational curriculum assistant.
+      Convert the user's raw lesson text into a structured JSON format matching this exact schema:
+      {
+        "title": "Lesson X: [Title]",
+        "subtitle": "[Subtitle]",
+        "target": "[Learning Target]",
+        "sections": {
+          "preClass": [
+            { "type": "title", "content": "..." },
+            { "type": "info", "content": "..." },
+            { "type": "write", "instruction": "...", "placeholder": "..." },
+            { "type": "quiz", "question": "...", "options": ["A","B"], "correct": 0 }
+          ],
+          "inClass": [],
+          "postClass": []
+        }
+      }
+      Identify core components and map them to "title", "info", "write", "quiz", "highlight", or "order" blocks. Return ONLY valid JSON.`;
+
+      const payload = {
+        contents: [{ parts: [{ text: rawLessonText }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { responseMimeType: "application/json" }
+      };
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+
+      const generatedJSON = JSON.parse(data.candidates[0].content.parts[0].text);
+      const newLesson = { ...generatedJSON, id: `lesson_${Date.now()}` };
+
+      if (db) {
+        const lessonRef = doc(db, 'artifacts', appId, 'app_lessons', newLesson.id);
+        await setDoc(lessonRef, newLesson);
+      }
+      
+      setRawLessonText('');
+      setCurrentView('dashboard');
+    } catch (error) {
+      console.error("生成失败:", error);
+      alert("解析课件失败：" + error.message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // ==========================================
+  // Render: Loading & Auth Screens
+  // ==========================================
+  if (isInitializing) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>;
+  }
+
+  if (!appUser) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 px-6">
+        <div className="max-w-md w-full mx-auto">
+          <div className="text-center mb-10">
+            <GraduationCap className="mx-auto h-16 w-16 text-indigo-600 mb-4" />
+            <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight">Writing Masterclass</h1>
+            <p className="mt-3 text-slate-500">Live Online Production Environment</p>
+          </div>
+
+          <div className="bg-white p-8 border border-slate-200 rounded-2xl shadow-xl">
+            <div className="flex mb-8 bg-slate-100 p-1 rounded-lg">
+              <button onClick={() => setAuthMode('login')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${authMode === 'login' ? 'bg-white shadow text-indigo-700' : 'text-slate-500'}`}>登录 (Login)</button>
+              <button onClick={() => setAuthMode('register')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${authMode === 'register' ? 'bg-white shadow text-indigo-700' : 'text-slate-500'}`}>注册 (Register)</button>
+            </div>
+
+            <form onSubmit={handleAuth} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">账号 Username</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+                  <input type="text" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} className="pl-10 w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. john_doe" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">密码 Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+                  <input type="password" value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} className="pl-10 w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="••••••••" />
+                </div>
+              </div>
+              
+              {authMode === 'register' && (
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-2">我是... I am a...</label>
+                   <div className="flex gap-4">
+                     <label className="flex items-center gap-2 cursor-pointer">
+                       <input type="radio" checked={roleInput === 'student'} onChange={() => setRoleInput('student')} className="text-indigo-600 focus:ring-indigo-500" /> 学生 (Student)
+                     </label>
+                     <label className="flex items-center gap-2 cursor-pointer">
+                       <input type="radio" checked={roleInput === 'teacher'} onChange={() => setRoleInput('teacher')} className="text-indigo-600 focus:ring-indigo-500" /> 老师 (Teacher)
+                     </label>
+                   </div>
+                </div>
+              )}
+
+              {authError && <p className="text-red-500 text-sm font-medium">{authError}</p>}
+
+              <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-md">
+                {authMode === 'login' ? '进入系统 (Sign In)' : '创建账号 (Create Account)'}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // Render: Student App
+  // ==========================================
+  if (appUser.role === 'student') {
+    if (currentView === 'lesson' && selectedLesson) {
+      const answers = (studentProgress[appUser.username] && studentProgress[appUser.username].answers[selectedLesson.id]) || {};
+      const feedback = (studentProgress[appUser.username] && studentProgress[appUser.username].feedback[selectedLesson.id]) || {};
+      return <LessonRunner lesson={selectedLesson} answers={answers} feedback={feedback} onUpdateAnswer={(k, v) => handleUpdateAnswer(selectedLesson.id, k, v)} onBack={() => setCurrentView('dashboard')} />;
+    }
+
+    return (
+      <div className="min-h-screen bg-slate-100 p-8 font-sans">
+        <div className="max-w-5xl mx-auto">
+          <header className="mb-12 flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <div>
+              <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Welcome, {appUser.username}! 👋</h1>
+              <p className="text-slate-500 mt-1">Select a lesson below to continue your training.</p>
+            </div>
+            <button onClick={() => setAppUser(null)} className="flex items-center gap-2 text-slate-500 hover:text-red-600 transition-colors"><LogOut className="w-5 h-5"/> Logout</button>
+          </header>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {lessons.map((lesson) => (
+              <div key={lesson.id} onClick={() => { setSelectedLesson(lesson); setCurrentView('lesson'); }} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col h-full">
+                <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors"><BookOpen className="w-6 h-6"/></div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">{lesson.title}</h3>
+                <p className="text-sm font-medium text-indigo-600 mb-4">{lesson.subtitle}</p>
+                <div className="flex items-center text-sm font-semibold text-slate-900 group-hover:text-indigo-600 mt-auto pt-4 border-t border-slate-100">
+                  进入学习 (Start) <ChevronRight className="w-4 h-4 ml-1" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // Render: Teacher App
+  // ==========================================
+  if (appUser.role === 'teacher') {
+    if (currentView === 'teacher_review' && selectedStudent && selectedLesson) {
+      const answers = (studentProgress[selectedStudent.username] && studentProgress[selectedStudent.username].answers[selectedLesson.id]) || {};
+      const feedback = (studentProgress[selectedStudent.username] && studentProgress[selectedStudent.username].feedback[selectedLesson.id]) || {};
+      return <LessonRunner lesson={selectedLesson} answers={answers} feedback={feedback} mode="review" onUpdateFeedback={(k, v) => handleUpdateFeedback(selectedStudent.username, selectedLesson.id, k, v)} onBack={() => setCurrentView('dashboard')} />;
+    }
+
+    if (currentView === 'teacher_build') {
+      return (
+        <div className="min-h-screen bg-slate-50 p-8">
+          <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col h-[90vh]">
+            <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-900 text-white">
+              <div className="flex items-center gap-3"><Sparkles className="text-yellow-400 w-6 h-6" /><h2 className="text-xl font-bold">AI Lesson Builder</h2></div>
+              <button onClick={() => setCurrentView('dashboard')} className="text-slate-300 hover:text-white">Cancel</button>
+            </div>
+            <div className="p-6 flex-grow flex flex-col">
+              <p className="text-slate-600 mb-4">Paste your raw text or Word document content here. Gemini AI will automatically parse it, extract questions, create interactive blocks, and add it to the curriculum.</p>
+              <textarea value={rawLessonText} onChange={(e) => setRawLessonText(e.target.value)} placeholder="Paste lesson text here..." className="w-full flex-grow p-4 bg-slate-50 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 resize-none font-mono text-sm mb-6" />
+              <button onClick={handleGenerateLesson} disabled={isGenerating || !rawLessonText.trim()} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:bg-slate-400">
+                {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                {isGenerating ? "Analyzing & Building Lesson..." : "Generate & Publish Lesson"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="min-h-screen bg-slate-100 p-8 font-sans">
+        <div className="max-w-6xl mx-auto">
+          <header className="mb-8 flex justify-between items-center bg-slate-900 text-white p-6 rounded-2xl shadow-lg">
+            <div><h1 className="text-3xl font-extrabold tracking-tight">Teacher Portal</h1><p className="text-slate-300 mt-1">Manage curriculum and review student progress.</p></div>
+            <div className="flex items-center gap-4">
+              <button onClick={() => setCurrentView('teacher_build')} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg font-medium transition-colors"><PlusCircle className="w-5 h-5" /> Add Lesson</button>
+              <button onClick={() => setAppUser(null)} className="flex items-center gap-2 text-slate-300 hover:text-red-400 transition-colors ml-4"><LogOut className="w-5 h-5"/> Logout</button>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-1 bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+              <div className="flex items-center gap-2 font-bold text-lg text-slate-800 mb-6 border-b border-slate-100 pb-4"><Users className="text-indigo-600"/> Enrolled Students</div>
+              <div className="space-y-3">
+                {allStudents.length === 0 ? <p className="text-slate-500 text-sm">暂无注册学生，快把部署后的链接发给他们吧！</p> : null}
+                {allStudents.map(stu => (
+                  <button key={stu.username} onClick={() => setSelectedStudent(stu)} className={`w-full text-left p-4 rounded-xl border transition-all ${selectedStudent?.username === stu.username ? 'bg-indigo-50 border-indigo-200 text-indigo-900' : 'bg-slate-50 border-slate-100 hover:border-indigo-200'}`}>
+                    <div className="font-semibold">{stu.username}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+              {selectedStudent ? (
+                <>
+                  <h2 className="font-bold text-2xl text-slate-800 mb-2">{selectedStudent.username}'s Progress</h2>
+                  <p className="text-slate-500 mb-8">Select a lesson to review their answers and provide feedback.</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {lessons.map(lesson => {
+                      const hasStarted = studentProgress[selectedStudent.username]?.answers?.[lesson.id];
+                      return (
+                        <div key={lesson.id} onClick={() => { setSelectedLesson(lesson); setCurrentView('teacher_review'); }} className="p-5 border border-slate-200 rounded-xl hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer group bg-slate-50">
+                          <h3 className="font-bold text-slate-800 mb-1">{lesson.title}</h3>
+                          <p className="text-sm text-slate-500 mb-4 line-clamp-1">{lesson.subtitle}</p>
+                          <div className="flex justify-between items-center text-sm font-medium">
+                            {hasStarted ? <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="w-4 h-4"/> In Progress / Done</span> : <span className="text-slate-400">Not started</span>}
+                            <span className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">Review &rarr;</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 min-h-[400px]">
+                  <Users className="w-16 h-16 mb-4 text-slate-200" />
+                  <p>左侧选择一名学生查看他们的作业和进度</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
